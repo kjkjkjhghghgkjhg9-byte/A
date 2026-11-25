@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#17142d">
+<link rel="manifest" href="./admin-manifest.json">
+<link rel="apple-touch-icon" href="./admin-icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<title>لوحة تحكم KMA Pro</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Cairo,Tahoma,sans-serif;background:#f5f6fb;color:#1c1840;padding:calc(16px + env(safe-area-inset-top)) 16px 40px}
+h1{font-size:22px;margin:4px 0 14px}.card{background:#fff;border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 4px 18px #2017471a;display:grid;gap:10px}
+label{display:grid;gap:4px;font-weight:700;font-size:14px}input,textarea{padding:11px;border-radius:12px;border:1px solid #d9d6ee;font:inherit;width:100%}
+.chk{display:flex;gap:8px;align-items:center}.chk input{width:auto}button,.btn{padding:12px;border:0;border-radius:14px;background:#7058d8;color:#fff;font:inherit;font-weight:800;text-align:center;text-decoration:none}
+.soft{background:#ece9ff;color:#4a35b0}small{color:#6b6890}#msg{font-weight:700;min-height:22px}.ok{color:#1a9f5a}.bad{color:#d33}[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<h1>🎛️ لوحة تحكم KMA Pro</h1>
+
+<div class="card" id="login">
+  <strong>1) الاتصال بالمستودع</strong>
+  <label>اسم حساب GitHub<input id="owner" dir="ltr" placeholder="kjkjkjhghghgkjhg9-byte"></label>
+  <label>اسم المستودع<input id="repo" dir="ltr" placeholder="Mmm"></label>
+  <label>الفرع<input id="branch" dir="ltr" value="main"></label>
+  <label>مفتاح الوصول (Token)<input id="token" type="password" dir="ltr" autocomplete="off" placeholder="github_pat_..."></label>
+  <label class="chk"><input type="checkbox" id="remember" checked> تذكّر البيانات على هذا الجوال</label>
+  <button id="connect" type="button">اتصال</button>
+  <small>المفتاح يُحفظ في جوالك فقط. لا تعطه لأحد ولا تكتبه داخل أي ملف. أنشئه من GitHub ← Settings ← Developer settings ← Fine-grained tokens، لهذا المستودع فقط، بصلاحية Contents: Read and write.</small>
+</div>
+
+<div id="panel" hidden>
+  <div class="card">
+    <strong>📢 إعلان أعلى التطبيق</strong>
+    <textarea id="announcement" rows="3" placeholder="اتركه فارغًا لإخفاء الإعلان"></textarea>
+  </div>
+  <div class="card">
+    <strong>🛠️ وضع الصيانة</strong>
+    <label class="chk"><input type="checkbox" id="maintenance"> إيقاف التطبيق مؤقتًا وعرض رسالة للجميع</label>
+    <textarea id="maintenanceMessage" rows="2" placeholder="رسالة الصيانة"></textarea>
+  </div>
+  <div class="card">
+    <strong>🤖 الذكاء الاصطناعي</strong>
+    <label class="chk"><input type="checkbox" id="aiEnabled"> تشغيل المساعد الذكي</label>
+  </div>
+  <div class="card">
+    <strong>💬 رقم واتساب الدعم</strong>
+    <input id="supportWhatsApp" type="tel" dir="ltr" inputmode="tel" placeholder="01012345678">
+    <small id="phoneHint"></small>
+  </div>
+  <button id="save" type="button">💾 حفظ ونشر التعديلات</button>
+  <a class="btn soft" style="display:block;margin-top:10px" href="https://kma-pro.goatcounter.com" target="_blank" rel="noopener">📊 إحصائيات الزوّار</a>
+  <button class="soft" id="logout" type="button" style="width:100%;margin-top:10px">تسجيل خروج ومسح البيانات</button>
+</div>
+<div id="msg"></div>
+
+<script>
+const $ = s => document.querySelector(s), K = "kma_admin_creds";
+let sha = null;
+const say = (t, ok) => { const m = $("#msg"); m.textContent = t; m.className = ok ? "ok" : "bad"; };
+function cleanPhone(v) {
+  let d = String(v || "").replace(/[٠-٩]/g, c => "٠١٢٣٤٥٦٧٨٩".indexOf(c)).replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2); else if (d.startsWith("0")) d = "20" + d.slice(1);
+  if (d.startsWith("20")) return /^201[0125]\d{8}$/.test(d) ? d : "";
+  return d.length >= 10 && d.length <= 15 ? d : "";
+}
+const base = () => `https://api.github.com/repos/${$("#owner").value.trim()}/${$("#repo").value.trim()}/contents/config.json`;
+const hdr = () => ({ Authorization: "Bearer " + $("#token").value.trim(), Accept: "application/vnd.github+json" });
+function fill(c) {
+  $("#announcement").value = c.announcement || "";
+  $("#maintenance").checked = !!c.maintenance;
+  $("#maintenanceMessage").value = c.maintenanceMessage || "التطبيق تحت التحديث، نعود قريبًا.";
+  $("#aiEnabled").checked = c.aiEnabled !== false;
+  $("#supportWhatsApp").value = c.supportWhatsApp || "";
+  phoneHint();
+}
+function phoneHint() {
+  const v = $("#supportWhatsApp").value.trim(), h = $("#phoneHint");
+  if (!v) { h.textContent = ""; return; }
+  const ok = !!cleanPhone(v); h.textContent = ok ? "✓ الرقم صحيح" : "✗ الرقم غير صحيح، مثال: 01012345678"; h.className = ok ? "ok" : "bad";
+}
+async function connect() {
+  const o = $("#owner").value.trim(), r = $("#repo").value.trim(), t = $("#token").value.trim(), b = $("#branch").value.trim() || "main";
+  if (!o || !r || !t) { say("اكتب اسم الحساب والمستودع والمفتاح.", false); return; }
+  say("…جارٍ الاتصال", true);
+  try {
+    const res = await fetch(base() + "?ref=" + encodeURIComponent(b), { headers: hdr(), cache: "no-store" });
+    if (res.status === 401 || res.status === 403) { say("المفتاح غير صحيح أو لا يملك صلاحية Contents: Read and write.", false); return; }
+    if (res.status === 404) {
+      const rr = await fetch(`https://api.github.com/repos/${o}/${r}`, { headers: hdr() });
+      if (!rr.ok) { say("لم أجد المستودع. راجع اسم الحساب والمستودع.", false); return; }
+      sha = null; fill({}); say("لا يوجد config.json بعد، سيُنشأ عند الحفظ.", true);
+    } else if (res.ok) {
+      const j = await res.json(); sha = j.sha;
+      fill(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\n/g, "")), ch => ch.charCodeAt(0)))));
+      say("تم الاتصال ✓", true);
+    } else { say("تعذّر الاتصال (" + res.status + ").", false); return; }
+    if ($("#remember").checked) localStorage.setItem(K, JSON.stringify({ o, r, t, b })); else localStorage.removeItem(K);
+    $("#panel").hidden = false; $("#login").hidden = true;
+  } catch { say("تعذّر الاتصال، تأكد من الإنترنت.", false); }
+}
+async function save() {
+  const ph = $("#supportWhatsApp").value.trim(), n = cleanPhone(ph);
+  if (ph && !n) { say("رقم الواتساب غير صحيح.", false); return; }
+  const cfg = { announcement: $("#announcement").value.trim(), maintenance: $("#maintenance").checked, maintenanceMessage: $("#maintenanceMessage").value.trim(), aiEnabled: $("#aiEnabled").checked, supportWhatsApp: n };
+  const bytes = new TextEncoder().encode(JSON.stringify(cfg, null, 2));
+  let bin = ""; bytes.forEach(x => bin += String.fromCharCode(x));
+  const body = { message: "تحديث الإعدادات من لوحة التحكم", content: btoa(bin), branch: $("#branch").value.trim() || "main" };
+  if (sha) body.sha = sha;
+  say("…جارٍ الحفظ", true);
+  try {
+    const res = await fetch(base(), { method: "PUT", headers: { ...hdr(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await res.json();
+    if (!res.ok) { say("تعذّر الحفظ: " + (j.message || res.status), false); return; }
+    sha = j.content.sha; say("تم الحفظ ✓ يظهر في التطبيق خلال دقيقة أو دقيقتين.", true);
+  } catch { say("تعذّر الحفظ، تأكد من الإنترنت.", false); }
+}
+$("#connect").addEventListener("click", connect);
+$("#save").addEventListener("click", save);
+$("#supportWhatsApp").addEventListener("input", phoneHint);
+$("#logout").addEventListener("click", () => { localStorage.removeItem(K); $("#token").value = ""; $("#panel").hidden = true; $("#login").hidden = false; say("تم تسجيل الخروج.", true); });
+try { const c = JSON.parse(localStorage.getItem(K)); if (c) { $("#owner").value = c.o; $("#repo").value = c.r; $("#token").value = c.t; $("#branch").value = c.b || "main"; connect(); } } catch {}
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+</script>
+</body>
+</html>
